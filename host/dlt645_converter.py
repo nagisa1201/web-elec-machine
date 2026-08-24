@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""Host-side DL/T 645 frame conversion.
+"""Transport-independent DL/T 645 frame conversion for Python.
 
-The upstream project contains the protocol conversion routines but leaves
-serial framing to RT-Thread.  This module keeps the conversion layer
-transport-independent and accepts arbitrary chunks from a USB serial device.
+The incremental decoder accepts arbitrary chunks from serial or TCP streams.
 """
 
 from __future__ import annotations

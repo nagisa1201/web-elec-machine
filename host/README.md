@@ -1,8 +1,7 @@
 # Local USB adapter
 
-This directory is the host-side transport and conversion layer extracted from
-the upstream DL/T 645 implementation. It does not require RT-Thread or a
-third-party Python package.
+This directory contains the Python transport and conversion tools for DL/T 645.
+It does not require a third-party Python package.
 
 ## Passive USB decoding
 
@@ -94,9 +93,6 @@ their RS485 frames will collide.
 ```sh
 python3 host/dlt645_usb.py --version 2007 --hex '68 ... 16'
 ```
-
-The conversion tables and BCD/scaling rules mirror the original files:
-`src/dlt645_1997.c`, `src/dlt645_2007.c`, and `src/dlt645_data.c`.
 
 USB-TTL cannot be connected directly to an RS485 meter. Use a TTL-to-RS485
 transceiver between them: `TX -> DI`, `RO -> RX`, and the transceiver `A/B`
