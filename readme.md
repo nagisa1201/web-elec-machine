@@ -44,7 +44,8 @@ python3 -m web --db meter_readings.sqlite3 \
   --poll-tcp 127.0.0.1:8899 --meter 123456789012 --interval 5
 ```
 
-浏览器打开 <http://127.0.0.1:8080>。
+在运行服务的机器上打开 <http://127.0.0.1:8080>；手机接入板卡热点后访问的
+是板卡热点 IP（见下方部署说明）。
 
 实际部署时，电表经 RS485 接入板卡，由 `host/` 的串口采集写库，`web/` 只读：
 
@@ -56,6 +57,10 @@ python3 host/dlt645_usb.py --port /dev/ttyUSB0 --baud 2400 --parity even \
 # Web 服务（板卡 AP 热点下监听所有网卡）
 python3 -m web --db meter_readings.sqlite3 --host 0.0.0.0 --port 80
 ```
+
+板卡开启 WIFI 热点后，手机连接该热点并在浏览器输入**板卡热点 IP**（AP 的
+网关地址，常见 `192.168.x.1`，如 `http://192.168.8.1`，端口 80 可省略）即可
+访问仪表盘；`127.0.0.1` 仅用于板卡本机调试。
 
 ## 离线解析单帧
 
