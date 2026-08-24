@@ -455,8 +455,48 @@ MSH_CMD_EXPORT(dlt645_test, dlt645 test);
  - 可以用PC工具发送68开头的数据：68 AA AA AA AA AA AA 68  11 04 33 34 34 35 B1 16
  - 返回的报文68开头前的FE个数就是前导码的长度，然后配置DLT645_PREMBLE_LEN即可。
 
+## 六、本机 USB 串口适配器
+
+如果需要在 Linux/macOS 主机上直接从 USB 转 RS485 适配器采集，不需要
+RT-Thread。`host/` 目录提供了独立的协议转换层和串口入口，支持流式拆包、
+FE 前导码、校验、DL/T 645-1997/2007 BCD 数据转换，并按 JSON 行输出。
+
+```sh
+python3 host/dlt645_usb.py --port /dev/ttyUSB0 --baud 2400 --version 2007
+```
+
+主动读取数据标识符：
+
+```sh
+python3 host/dlt645_usb.py --port /dev/ttyUSB0 --baud 2400 \
+  --addr 123456789012 --code 0x02010100
+```
+
+详细参数和离线报文校验示例见 [host/README.md](host/README.md)。
+
+使用 USB 转 RS485 适配器持续采集常用电气量并写入本地 SQLite：
+
+```sh
+python3 host/dlt645_usb.py --port /dev/cu.usbserial-130 \
+  --baud 2400 --parity even --version 2007 \
+  --addr 557499000093 --poll --interval 5 \
+  --db meter_readings.sqlite3
+```
+
+加上 `--all` 会把已启用的费率电能和设备信息等目录项也纳入每轮查询；
+这台表之前返回 `0x03` 的标识符已从批量目录中移除。可用 `--list-codes`
+查看当前启用目录；如需手动测试被移除的标识符，仍可显式使用 `--code`。
+
+没有 USB 转 RS485 适配器时，可先启动仓库自带的 TCP 模拟电表：
+
+```sh
+python3 host/dlt645_simulator.py --port 8899 --version 2007
+python3 host/dlt645_usb.py --tcp 127.0.0.1:8899 --version 2007 \
+  --addr 123456789012 --code 0x02010100
+```
+
 ## 支持
 
 ![支持](./docs/_assets/wechat_support.png)
 
-如果这个软件包解决了你的问题，不妨扫描上面二维码请我喝杯咖啡吧 
+如果这个软件包解决了你的问题，不妨扫描上面二维码请我喝杯咖啡吧
