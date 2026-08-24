@@ -13,9 +13,10 @@ METER_PORT="${METER_PORT:-8899}"
 WEB_PORT="${WEB_PORT:-8080}"
 METER_ADDR="${METER_ADDR:-123456789012}"
 INTERVAL="${INTERVAL:-5}"
-HOTSPOT_SSID="${HOTSPOT_SSID:-VoltMonitor}"
+HOTSPOT_SSID="${HOTSPOT_SSID:-RDK_VOLT}"
 HOTSPOT_PASS="${HOTSPOT_PASS:-12345678}"
-AP_IP="${AP_IP:-192.168.8.1}"
+HOTSPOT_IFACE="${HOTSPOT_IFACE:-wlan0}"
+AP_IP="${AP_IP:-10.42.0.1}"
 
 echo "[1/3] 启动模拟电表 tcp://127.0.0.1:${METER_PORT}（A 相 230.5 V）..."
 python3 host/dlt645_simulator.py --host 127.0.0.1 --port "${METER_PORT}" --version 2007 &
@@ -35,7 +36,9 @@ trap cleanup EXIT INT TERM
 if [ "${SKIP_HOTSPOT:-0}" != "1" ]; then
   echo "[3/3] 尝试开启 WIFI 热点（SSID: ${HOTSPOT_SSID}）..."
   if sudo -n true 2>/dev/null; then
-    sudo scripts/hotspot.sh --ssid "${HOTSPOT_SSID}" --pass "${HOTSPOT_PASS}" --ip "${AP_IP}" \
+    sudo python3 scripts/hotspot.py \
+      --ssid "${HOTSPOT_SSID}" --password "${HOTSPOT_PASS}" \
+      --iface "${HOTSPOT_IFACE}" --ip "${AP_IP}" --port "${WEB_PORT}" \
       || echo "    热点开启失败，请手动开启后重试（见 README）"
   else
     echo "    开启热点需要 sudo；先执行 'sudo -v' 或加 SKIP_HOTSPOT=1 跳过。"

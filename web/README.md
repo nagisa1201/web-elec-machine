@@ -195,7 +195,7 @@ bash scripts/start_demo.sh
 
 | 平台 | 手机怎么访问 |
 | --- | --- |
-| Linux / 板卡 | 手机连热点 `VoltMonitor`（密码 `12345678`），浏览器打开 `http://192.168.8.1:8080` |
+| Linux / 板卡 | 手机连热点 `RDK_VOLT`（密码 `12345678`），浏览器打开 `http://10.42.0.1:8080` |
 | Windows | 手动开启「设置 > 网络 > 移动热点」，手机连该热点，打开 `http://<热点IP>:8080`（通常 `192.168.137.1`） |
 
 `start_demo.sh` 可用环境变量覆盖默认值：
@@ -203,12 +203,18 @@ bash scripts/start_demo.sh
 ```text
 METER_PORT  模拟电表端口（默认 8899）    WEB_PORT  Web 服务端口（默认 8080）
 METER_ADDR  电表地址（默认 123456789012） INTERVAL  轮询间隔秒（默认 5）
-HOTSPOT_SSID / HOTSPOT_PASS  热点名称 / 密码    AP_IP  热点网关 IP（默认 192.168.8.1）
-SKIP_HOTSPOT=1  跳过开热点
+HOTSPOT_SSID / HOTSPOT_PASS  热点名称 / 密码    AP_IP  热点网关 IP（默认 10.42.0.1）
+HOTSPOT_IFACE  WiFi 网卡名（默认 wlan0）        SKIP_HOTSPOT=1  跳过开热点
 ```
 
-`hotspot.sh` 依赖 NetworkManager（`nmcli`）；若板卡用 `hostapd + dnsmasq`，
-按板卡实际网络工具开启热点即可——Web 服务只要求绑定 `0.0.0.0`。
+开热点用 NetworkManager 的一键子命令（与参考实现一致，见 `scripts/hotspot.py`）：
+
+```text
+nmcli device disconnect wlan0
+nmcli device wifi hotspot ssid RDK_VOLT password 12345678 ifname wlan0
+```
+
+热点网关为 NetworkManager 共享连接的默认地址 `10.42.0.1`；Web 服务只要求绑定 `0.0.0.0`。
 
 ## 部署到 RDK X5（AP 热点场景）
 
@@ -222,10 +228,16 @@ SKIP_HOTSPOT=1  跳过开热点
    python3 -m web --db /var/lib/meter.sqlite3 --host 0.0.0.0 --port 80
    ```
 
-3. 手机连接板卡建立的 WIFI 热点后，在浏览器地址栏输入**板卡热点 IP**
-   （即 AP 的网关地址，常见为 `192.168.x.1`，可用 `ip addr` 查看热点网卡
-   的地址），例如 `http://192.168.8.1`（端口 80 可省略）或
-   `http://192.168.8.1:8080`。
+3. 开启热点（一键子命令，同参考实现）：
+
+   ```sh
+   sudo python3 scripts/hotspot.py
+   ```
+
+   手机连接板卡建立的 WIFI 热点后，在浏览器地址栏输入**板卡热点 IP**（AP 的
+   网关地址，通常为 NetworkManager 共享连接的默认地址 `10.42.0.1`，可用
+   `ip addr` 查看热点网卡地址确认），例如 `http://10.42.0.1`（端口 80 可省略）
+   或 `http://10.42.0.1:8080`。
 
    > `127.0.0.1` 只是板卡自身的回环地址，仅用于板卡本机调试；手机走的是
    > 热点网络，必须用板卡在热点网络里的 IP。
