@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>无线电压监测系统</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">⚡</div>
+      <div class="brand-text">
+        <h1>无线电压监测系统</h1>
+        <p>基于嵌入式 Web 服务器 · DL/T 645-2007</p>
+      </div>
+    </div>
+    <div class="topbar-controls">
+      <div class="meter-picker">
+        <label for="meter-select">电表</label>
+        <select id="meter-select" disabled>
+          <option value="">暂无电表</option>
+        </select>
+      </div>
+      <div class="status" id="status" data-state="offline">
+        <span class="status-dot"></span>
+        <span class="status-text">未连接</span>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Live section -->
+    <section class="panel panel--live">
+      <div class="panel-head">
+        <h2>实时电压</h2>
+        <span class="panel-sub" id="live-window">最近 60 分钟</span>
+      </div>
+      <div class="phase-cards" id="phase-cards"></div>
+      <div class="chart-wrap">
+        <canvas id="live-chart"></canvas>
+        <div class="chart-empty" id="live-empty">暂无实时数据</div>
+      </div>
+    </section>
+
+    <!-- History section -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>历史日电压曲线</h2>
+        <div class="date-nav">
+          <button class="btn btn-ghost" id="prev-day" title="前一天">‹</button>
+          <input type="date" id="day-picker">
+          <button class="btn btn-ghost" id="next-day" title="后一天">›</button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="history-chart"></canvas>
+        <div class="chart-empty" id="history-empty">暂无历史数据</div>
+      </div>
+    </section>
+
+    <!-- Stats section -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>日统计数据</h2>
+        <span class="panel-sub" id="stats-date">—</span>
+      </div>
+      <div class="stat-grid" id="stat-grid">
+        <div class="stat-card">
+          <span class="stat-label">最高电压</span>
+          <span class="stat-value" id="stat-max">—</span>
+          <span class="stat-meta" id="stat-max-time">—</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">最低电压</span>
+          <span class="stat-value" id="stat-min">—</span>
+          <span class="stat-meta" id="stat-min-time">—</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">停电次数</span>
+          <span class="stat-value" id="stat-outage-count">—</span>
+          <span class="stat-meta">次</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">累计停电时长</span>
+          <span class="stat-value" id="stat-outage-duration">—</span>
+          <span class="stat-meta">分钟</span>
+        </div>
+      </div>
+      <div class="outage-block">
+        <h3>停电记录</h3>
+        <div class="outage-list" id="outage-list">
+          <p class="muted">当日无停电记录</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span id="footer-info">加载中…</span>
+  </footer>
+
+  <script src="/static/js/chart.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
