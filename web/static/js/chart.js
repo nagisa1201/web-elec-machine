@@ -35,6 +35,8 @@
           textColor: "#8b949e",
           lineWidth: 2,
           fill: false,
+          referenceLines: [],
+          markers: [],
           xLabelCount: 6,
           mono: "SFMono-Regular, Consolas, monospace",
           xFormat: (d) =>
@@ -56,16 +58,30 @@
       this.draw();
     }
 
+    setMarkers(markers) {
+      this.options.markers = markers || [];
+      this.draw();
+    }
+
     _bind() {
-      this.canvas.addEventListener("mousemove", (e) => {
+      const move = (x, y) => {
         const rect = this.canvas.getBoundingClientRect();
-        this.hover = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        this.hover = { x: x - rect.left, y: y - rect.top };
         this.draw();
-      });
-      this.canvas.addEventListener("mouseleave", () => {
+      };
+      const clear = () => {
         this.hover = null;
         this.draw();
+      };
+      this.canvas.addEventListener("mousemove", (e) => move(e.clientX, e.clientY));
+      this.canvas.addEventListener("mouseleave", clear);
+      this.canvas.addEventListener("touchstart", (e) => {
+        if (e.touches.length) move(e.touches[0].clientX, e.touches[0].clientY);
       });
+      this.canvas.addEventListener("touchmove", (e) => {
+        if (e.touches.length) move(e.touches[0].clientX, e.touches[0].clientY);
+      });
+      this.canvas.addEventListener("touchend", clear);
     }
 
     resize() {
@@ -164,6 +180,27 @@
         ctx.fillText(this.options.xFormat(new Date(t)), x, this._h - padding.bottom + 8);
       }
 
+      // Reference lines (e.g. nominal voltage) drawn behind the traces.
+      for (const ref of this.options.referenceLines) {
+        if (!Number.isFinite(ref.value)) continue;
+        const y = this._y(ref.value);
+        if (y < padding.top || y > this._h - padding.bottom) continue; // off-scale
+        ctx.strokeStyle = ref.color || "rgba(255,255,255,0.25)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash(ref.dash || [6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(padding.left + plotW, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (ref.label) {
+          ctx.textAlign = "left";
+          ctx.textBaseline = "bottom";
+          ctx.fillStyle = ref.color || textColor;
+          ctx.fillText(ref.label, padding.left + 4, y - 2);
+        }
+      }
+
       // Series lines (and optional area fill for the first series).
       for (let si = 0; si < this.series.length; si++) {
         const s = this.series[si];
@@ -196,6 +233,21 @@
           const x = this._x(p.t), y = this._y(p.v);
           idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         });
+        ctx.stroke();
+      }
+
+      // Highlighted markers (e.g. daily min / max points).
+      for (const m of this.options.markers) {
+        const t = new Date(m.time).getTime();
+        if (!Number.isFinite(t) || !Number.isFinite(m.value)) continue;
+        if (t < this._minT || t > this._maxT) continue;
+        const x = this._x(t), y = this._y(m.value);
+        ctx.beginPath();
+        ctx.arc(x, y, m.radius || 4, 0, Math.PI * 2);
+        ctx.fillStyle = m.color || "#f59e0b";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.9)";
+        ctx.lineWidth = 1.5;
         ctx.stroke();
       }
 

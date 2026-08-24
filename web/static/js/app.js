@@ -8,6 +8,9 @@
   const state = {
     meter: null,
     day: null, // "YYYY-MM-DD"
+    nominalVolts: 220, // nominal grid voltage, refreshed from /api/health
+    outageLow: 30, // outage threshold, refreshed from /api/health
+    lastUpdate: null, // epoch ms of the last successful realtime fetch
     liveChart: null,
     historyChart: null,
     healthTimer: null,
@@ -30,8 +33,7 @@
 
   function fmtTime(iso) {
     if (!iso) return "—";
-    const d = new Date(iso);
-    return fmtClock(d);
+    return fmtClock(new Date(iso));
   }
 
   function fmtVoltage(v) {
@@ -46,6 +48,25 @@
     return (s / 3600).toFixed(1) + " 小时";
   }
 
+  function fmtAgo(ts) {
+    if (!ts) return "—";
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 5) return "刚刚";
+    if (s < 60) return s + " 秒前";
+    return Math.round(s / 60) + " 分钟前";
+  }
+
+  // Classify a voltage reading against the configured thresholds.
+  function classifyVoltage(v) {
+    if (v === null || v === undefined || !Number.isFinite(v)) {
+      return { label: "暂无数据", tone: "idle" };
+    }
+    if (v < state.outageLow) return { label: "电压异常", tone: "bad" };
+    if (v < state.nominalVolts * 0.9) return { label: "电压偏低", tone: "warn" };
+    if (v > state.nominalVolts * 1.1) return { label: "电压偏高", tone: "warn" };
+    return { label: "正常", tone: "ok" };
+  }
+
   function setStatus(stateName, text) {
     const node = el("status");
     node.setAttribute("data-state", stateName);
@@ -54,6 +75,9 @@
 
   function tickClock() {
     el("clock").textContent = fmtClock(new Date());
+    if (state.lastUpdate) {
+      el("hero-updated").textContent = "最后更新 " + fmtAgo(state.lastUpdate);
+    }
   }
 
   // ----------------------------------------------------------------- health
@@ -68,6 +92,9 @@
       return;
     }
 
+    if (Number.isFinite(health.nominal_volts)) state.nominalVolts = health.nominal_volts;
+    if (Number.isFinite(health.outage_low_volts)) state.outageLow = health.outage_low_volts;
+
     if (!health.db_available || health.meters.length === 0) {
       setStatus("online", "已连接 · 无数据");
     } else {
@@ -77,6 +104,14 @@
       health.service + " v" + health.version +
       (health.polling ? " · 采集运行中" : "") +
       " · 数据库 " + health.db;
+
+    // Keep the live chart's nominal reference line in sync with the server.
+    state.liveChart.options.referenceLines = [{
+      value: state.nominalVolts,
+      label: state.nominalVolts + "V 额定",
+      color: "rgba(245, 158, 11, 0.55)",
+      dash: [4, 4],
+    }];
 
     populateMeters(health.meters);
   }
@@ -125,7 +160,9 @@
     if (!state.meter) return;
     try {
       const data = await window.api.realtime(state.meter);
+      state.lastUpdate = Date.now();
       el("live-window").textContent = "最近 " + data.minutes + " 分钟";
+      renderHero(data);
       renderPhaseCards(data);
       const hasPoints = data.series.some((s) => s.points && s.points.length > 0);
       el("live-empty").classList.toggle("hidden", hasPoints);
@@ -133,6 +170,26 @@
     } catch (err) {
       el("live-empty").classList.remove("hidden");
     }
+  }
+
+  function renderHero(data) {
+    const phase = (data.phases && data.phases[0]) || null;
+    const series =
+      (data.series || []).find((s) => !phase || s.phase === phase) ||
+      (data.series || [])[0];
+    const pts = series && series.points;
+    const latest = pts && pts.length ? pts[pts.length - 1] : null;
+    const value = latest ? latest[1] : null;
+    const cls = classifyVoltage(value);
+
+    const valueEl = el("hero-value");
+    valueEl.textContent = fmtVoltage(value);
+    valueEl.setAttribute("data-tone", cls.tone);
+    el("hero-phase").textContent = phase ? (PHASE_NAME[phase] || phase) : "电压";
+    const statusEl = el("hero-status");
+    statusEl.textContent = cls.label;
+    statusEl.setAttribute("data-tone", cls.tone);
+    el("hero-updated").textContent = "最后更新 " + fmtAgo(state.lastUpdate);
   }
 
   function renderPhaseCards(data) {
@@ -154,11 +211,14 @@
       const card = document.createElement("div");
       card.className = "phase-card";
       const value = point ? point[1] : null;
+      const cls = classifyVoltage(value);
       card.innerHTML =
         '<span class="phase-name"><span class="swatch" style="background:' +
         (PHASE_COLOR[phase] || "#9ca3af") + '"></span>' + (PHASE_NAME[phase] || phase) +
         '</span>' +
-        '<span class="phase-value">' + fmtVoltage(value) + '<span class="phase-unit">V</span></span>' +
+        '<span class="phase-value" data-tone="' + cls.tone + '">' + fmtVoltage(value) +
+        '<span class="phase-unit">V</span></span>' +
+        '<span class="phase-status" data-tone="' + cls.tone + '">' + cls.label + '</span>' +
         '<span class="phase-time">' + (point ? fmtTime(point[0]) : "—") + "</span>";
       container.appendChild(card);
     });
@@ -197,6 +257,16 @@
     el("stat-min-time").textContent = stats && stats.min ? fmtTime(stats.min.time) : "—";
     el("stat-outage-count").textContent = stats ? String(stats.outage_count) : "—";
     el("stat-outage-duration").textContent = stats ? fmtDuration(stats.outage_seconds) : "—";
+
+    // Highlight the day's extrema on the history curve.
+    const markers = [];
+    if (stats && stats.max) {
+      markers.push({ time: stats.max.time, value: stats.max.value, color: "#f59e0b", radius: 4 });
+    }
+    if (stats && stats.min) {
+      markers.push({ time: stats.min.time, value: stats.min.value, color: "#34d399", radius: 4 });
+    }
+    state.historyChart.setMarkers(markers);
 
     const list = el("outage-list");
     list.innerHTML = "";
@@ -239,6 +309,12 @@
       yUnit: "V",
       fill: true,
       xFormat: (d) => fmtClock(d),
+      referenceLines: [{
+        value: state.nominalVolts,
+        label: state.nominalVolts + "V 额定",
+        color: "rgba(245, 158, 11, 0.55)",
+        dash: [4, 4],
+      }],
     });
     state.historyChart = new window.LineChart(el("history-chart"), {
       yUnit: "V",

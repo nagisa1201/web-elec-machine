@@ -124,6 +124,54 @@ html, body {
 .panel-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
 .panel-sub { font-size: 12px; color: var(--text-muted); }
 
+/* ------------------------------------------------------------------- hero */
+
+.live-hero {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.hero-main { display: flex; align-items: baseline; gap: 10px; }
+.hero-label { font-size: 13px; color: var(--text-muted); }
+.hero-value {
+  font-family: var(--mono);
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1;
+}
+.hero-unit { font-size: 16px; color: var(--text-muted); }
+.hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.hero-phase { font-size: 13px; color: var(--text-muted); }
+.hero-updated { font-size: 11px; color: var(--text-muted); }
+
+/* status tones shared by hero + phase cards */
+.hero-value[data-tone="ok"] { color: var(--green); }
+.hero-value[data-tone="warn"] { color: var(--amber); }
+.hero-value[data-tone="bad"] { color: var(--red); }
+.hero-value[data-tone="idle"] { color: var(--text-muted); }
+
+.hero-status, .phase-status {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+}
+.hero-status[data-tone="ok"], .phase-status[data-tone="ok"] {
+  color: var(--green); border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.12);
+}
+.hero-status[data-tone="warn"], .phase-status[data-tone="warn"] {
+  color: var(--amber); border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.12);
+}
+.hero-status[data-tone="bad"], .phase-status[data-tone="bad"] {
+  color: var(--red); border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.12);
+}
+
 /* -------------------------------------------------------------- phase cards */
 
 .phase-cards {
@@ -137,6 +185,9 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 .phase-card .phase-name { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
 .phase-card .phase-name .swatch { width: 8px; height: 8px; border-radius: 50%; }
@@ -146,7 +197,12 @@ html, body {
   font-weight: 600;
   margin: 4px 0 2px;
 }
+.phase-card .phase-value[data-tone="ok"] { color: var(--green); }
+.phase-card .phase-value[data-tone="warn"] { color: var(--amber); }
+.phase-card .phase-value[data-tone="bad"] { color: var(--red); }
+.phase-card .phase-value[data-tone="idle"] { color: var(--text-muted); }
 .phase-card .phase-unit { font-size: 13px; color: var(--text-muted); margin-left: 2px; }
+.phase-card .phase-status { align-self: flex-start; }
 .phase-card .phase-time { font-size: 11px; color: var(--text-muted); }
 
 /* ------------------------------------------------------------------ charts */
@@ -232,4 +288,6 @@ html, body {
 
 @media (max-width: 860px) {
   .layout { grid-template-columns: 1fr; }
+  .hero-side { align-items: flex-start; }
+  .hero-value { font-size: 36px; }
 }

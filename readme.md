@@ -13,6 +13,7 @@
 web-elec-machine/
   host/     DL/T 645 采集：协议转换、串口/TCP 传输、SQLite 存储、模拟器
   web/      Web 服务器与 UI：数据层、HTTP 服务、JSON API、自包含仪表盘
+  scripts/  一键启动：模拟链路（模拟电表 + Web 服务 + 开热点）
 ```
 
 两个模块通过共享的 SQLite 数据文件（`meter_readings.sqlite3`）解耦：`host/`
@@ -46,6 +47,9 @@ python3 -m web --db meter_readings.sqlite3 \
 
 在运行服务的机器上打开 <http://127.0.0.1:8080>；手机接入板卡热点后访问的
 是板卡热点 IP（见下方部署说明）。
+
+一键模拟链路（模拟电表 + Web 服务 + 开热点）：`bash scripts/start_demo.sh`
+（Windows 用 `scripts\start_demo.bat`），详见 [web/README.md](web/README.md)。
 
 实际部署时，电表经 RS485 接入板卡，由 `host/` 的串口采集写库，`web/` 只读：
 

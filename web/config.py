@@ -31,6 +31,10 @@ DEFAULT_OUTAGE_LOW = 30.0  # V below which a reading counts as outage
 DEFAULT_POLL_INTERVAL = 5.0
 DEFAULT_TIMEOUT = 1.5
 
+# Nominal single-phase grid voltage (China); the UI uses it as the reference
+# line and to classify a reading as high/low.
+NOMINAL_VOLTS = 220.0
+
 # DL/T 645-2007 data identifiers for the three phase voltages.
 PHASE_VOLTAGE_CODES = (0x02010100, 0x02010200, 0x02010300)
 

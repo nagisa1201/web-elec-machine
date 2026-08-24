@@ -16,7 +16,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from .config import SERVICE_NAME, SERVICE_VERSION, Config
+from .config import NOMINAL_VOLTS, SERVICE_NAME, SERVICE_VERSION, Config
 from .datastore import DailyStats, DataStore
 
 _PHASE_LABEL = {"a": "A相", "b": "B相", "c": "C相"}
@@ -99,6 +99,11 @@ def api_health(app: Application, params: dict) -> dict:
         "polling": app.poller is not None,
         "meters": meters,
         "latest_at": _iso(latest_at) if latest_at else None,
+        # Monitoring semantics the UI uses to draw the reference line and to
+        # classify a reading as normal / low / high / outage.
+        "nominal_volts": NOMINAL_VOLTS,
+        "outage_low_volts": app.config.outage_low_volts,
+        "outage_gap_seconds": app.config.outage_gap_seconds,
     }
 
 

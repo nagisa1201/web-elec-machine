@@ -182,6 +182,34 @@ python3 -m web --db meter_readings.sqlite3 --host 0.0.0.0 --port 8080
   2. 读数低于 `--outage-low` V（220 V 线路上的近零值）。
   一天首条数据之前、末条数据之后的空白不计为停电（无法与“监测器未开机”区分）。
 
+## 模拟链路（一键启动）
+
+不接真实电表也能完整跑通「模拟电表 → 写库 → Web 展示 → 手机访问」：
+
+```sh
+# Linux / RDK X5：模拟电表 + Web 服务 + 开热点，一步到位
+bash scripts/start_demo.sh
+```
+
+启动后手机访问方式：
+
+| 平台 | 手机怎么访问 |
+| --- | --- |
+| Linux / 板卡 | 手机连热点 `VoltMonitor`（密码 `12345678`），浏览器打开 `http://192.168.8.1:8080` |
+| Windows | 手动开启「设置 > 网络 > 移动热点」，手机连该热点，打开 `http://<热点IP>:8080`（通常 `192.168.137.1`） |
+
+`start_demo.sh` 可用环境变量覆盖默认值：
+
+```text
+METER_PORT  模拟电表端口（默认 8899）    WEB_PORT  Web 服务端口（默认 8080）
+METER_ADDR  电表地址（默认 123456789012） INTERVAL  轮询间隔秒（默认 5）
+HOTSPOT_SSID / HOTSPOT_PASS  热点名称 / 密码    AP_IP  热点网关 IP（默认 192.168.8.1）
+SKIP_HOTSPOT=1  跳过开热点
+```
+
+`hotspot.sh` 依赖 NetworkManager（`nmcli`）；若板卡用 `hostapd + dnsmasq`，
+按板卡实际网络工具开启热点即可——Web 服务只要求绑定 `0.0.0.0`。
+
 ## 部署到 RDK X5（AP 热点场景）
 
 完整链路：**RDK X5 开启 WIFI 热点 → 手机连接该热点 → 手机浏览器访问板卡热点 IP**。

@@ -37,6 +37,18 @@
         <h2>实时电压</h2>
         <span class="panel-sub" id="live-window">最近 60 分钟</span>
       </div>
+      <div class="live-hero">
+        <div class="hero-main">
+          <span class="hero-label">当前电压</span>
+          <span class="hero-value" id="hero-value" data-tone="idle">—</span>
+          <span class="hero-unit">V</span>
+        </div>
+        <div class="hero-side">
+          <span class="hero-phase" id="hero-phase">—</span>
+          <span class="hero-status" id="hero-status" data-tone="idle">暂无数据</span>
+          <span class="hero-updated" id="hero-updated">最后更新 —</span>
+        </div>
+      </div>
       <div class="phase-cards" id="phase-cards"></div>
       <div class="chart-wrap">
         <canvas id="live-chart"></canvas>
