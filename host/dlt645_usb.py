@@ -11,6 +11,7 @@ import socket
 import sys
 import termios
 import time
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from dlt645_converter import (
@@ -24,7 +25,7 @@ from dlt645_converter import (
     parse_code,
     read_codes,
 )
-from dlt645_database import SQLiteStore
+from dlt645_database import OutageTracker, SQLiteStore
 
 
 _BAUD = {
@@ -387,11 +388,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                     discover_address(port, args.preamble, args.timeout, args.debug)
             elif codes:
                 store = SQLiteStore(args.db) if args.db else None
+                tracker = None
                 try:
                     if args.poll:
+                        tracker = OutageTracker(store, address)
                         while True:
                             cycle_started = time.monotonic()
-                            request(
+                            results = request(
                                 port,
                                 address,
                                 codes,
@@ -400,6 +403,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 args.timeout,
                                 args.debug,
                                 store.save if store else None,
+                            )
+                            tracker.update(
+                                any(result.get("ok") for result in results),
+                                datetime.now(timezone.utc),
                             )
                             elapsed = time.monotonic() - cycle_started
                             delay = args.interval - elapsed
@@ -423,6 +430,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                             store.save if store else None,
                         )
                 finally:
+                    if tracker is not None:
+                        tracker.finalize(datetime.now(timezone.utc))
                     if store:
                         store.close()
             else:

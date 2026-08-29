@@ -120,6 +120,25 @@ def detect_outages(
     return outages
 
 
+def _merge_outages(*groups: list[Outage]) -> list[Outage]:
+    """Merge several outage lists into non-overlapping intervals.
+
+    Acquisition-layer outages (from the ``outages`` table) may overlap the
+    gap / low-voltage outages inferred locally, so both are normalised here
+    into a single, sorted, non-overlapping sequence for ``stats`` to sum.
+    """
+    ordered = sorted((outage for group in groups for outage in group), key=lambda o: o.start)
+    merged: list[Outage] = []
+    for outage in ordered:
+        if merged and outage.start <= merged[-1].end:
+            if outage.end > merged[-1].end:
+                last = merged[-1]
+                merged[-1] = Outage(last.start, outage.end, (outage.end - last.start).total_seconds())
+        else:
+            merged.append(outage)
+    return merged
+
+
 class DataStore:
     """Read-only facade over the shared ``meter_readings`` SQLite table."""
 
@@ -217,6 +236,34 @@ class DataStore:
             for row in rows
         ]
 
+    def outages(self, meter: str, start: datetime, end: datetime) -> list[Outage]:
+        """Outage intervals recorded by the acquisition layer, clipped to the window."""
+        if not self.available():
+            return []
+        try:
+            rows = self._query(
+                "SELECT started_at, ended_at FROM outages "
+                "WHERE meter_address = ? AND started_at < ? AND ended_at > ? "
+                "ORDER BY started_at ASC",
+                (meter, self._utc_iso(end), self._utc_iso(start)),
+            )
+        except sqlite3.OperationalError:
+            # The ``outages`` table is created by the acquisition layer; a store
+            # written by an older or simpler collector may lack it. Treat that as
+            # "no acquisition-layer intervals to merge" rather than failing stats.
+            return []
+        result: list[Outage] = []
+        for row in rows:
+            started = self._localize(row["started_at"])
+            ended = self._localize(row["ended_at"])
+            if started < start:
+                started = start
+            if ended > end:
+                ended = end
+            if ended > started:
+                result.append(Outage(started, ended, (ended - started).total_seconds()))
+        return result
+
     # ----------------------------------------------------------------- series
 
     def recent_series(self, meter: str, minutes: int = 60) -> dict:
@@ -277,11 +324,14 @@ class DataStore:
             maximum = Extremum(highest.value, highest.timestamp, highest.phase)
             minimum = Extremum(lowest.value, lowest.timestamp, lowest.phase)
 
-        outages = detect_outages(
-            samples,
-            gap_seconds=self.outage_gap_seconds,
-            low_volts=self.outage_low_volts,
-            end=end,
+        outages = _merge_outages(
+            detect_outages(
+                samples,
+                gap_seconds=self.outage_gap_seconds,
+                low_volts=self.outage_low_volts,
+                end=end,
+            ),
+            self.outages(meter, start, end),
         )
         return DailyStats(
             date=day,

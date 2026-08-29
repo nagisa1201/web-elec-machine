@@ -33,6 +33,12 @@ CREATE TABLE meter_readings (
     error TEXT,
     data_decoded TEXT,
     raw_hex TEXT NOT NULL
+);
+CREATE TABLE outages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meter_address TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT NOT NULL
 )
 """
 
@@ -46,7 +52,7 @@ def make_db(rows) -> str:
     fd, path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
     conn = sqlite3.connect(path)
-    conn.execute(SCHEMA)
+    conn.executescript(SCHEMA)
     for dt, name, value in rows:
         conn.execute(
             "INSERT INTO meter_readings "
@@ -144,6 +150,25 @@ class DataStoreTests(unittest.TestCase):
         stats = store.stats(METER, "2026-08-24")
         self.assertEqual(stats.outage_count, 1)
         self.assertGreater(stats.outage_seconds, 0)
+
+    def test_stats_merges_acquisition_layer_outages(self):
+        # Gap-free samples plus one outage interval recorded by the acquisition
+        # layer's ``outages`` table must both survive the merge.
+        path = make_db([
+            (at("2026-08-24", 8, 0, 0), "phase_a_voltage", 220.0),
+            (at("2026-08-24", 8, 1, 0), "phase_a_voltage", 221.0),
+        ])
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "INSERT INTO outages (meter_address, started_at, ended_at) VALUES (?, ?, ?)",
+            (METER, _utc(at("2026-08-24", 8, 5, 0)), _utc(at("2026-08-24", 8, 9, 0))),
+        )
+        conn.commit()
+        conn.close()
+        store = DataStore(path, tz=TZ)
+        stats = store.stats(METER, "2026-08-24")
+        self.assertEqual(stats.outage_count, 1)
+        self.assertAlmostEqual(stats.outage_seconds, 240.0, delta=1.0)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from dlt645_converter import format_address
+
 
 class SQLiteStore:
     """Append-only local store for meter samples and communication errors."""
@@ -43,6 +45,16 @@ class SQLiteStore:
         self.connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_meter_readings_code "
             "ON meter_readings(meter_address, data_identifier, recorded_at)"
+        )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS outages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                meter_address TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL
+            )
+            """
         )
         self.connection.commit()
 
@@ -86,6 +98,18 @@ class SQLiteStore:
         )
         self.connection.commit()
 
+    def save_outage(self, meter_address: str, started_at: datetime, ended_at: datetime) -> None:
+        """Persist one power-outage interval detected by the acquisition loop."""
+        self.connection.execute(
+            "INSERT INTO outages (meter_address, started_at, ended_at) VALUES (?, ?, ?)",
+            (
+                meter_address,
+                started_at.isoformat(timespec="milliseconds"),
+                ended_at.isoformat(timespec="milliseconds"),
+            ),
+        )
+        self.connection.commit()
+
     def close(self) -> None:
         self.connection.close()
 
@@ -94,3 +118,43 @@ class SQLiteStore:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+
+class OutageTracker:
+    """Turn per-cycle poll success into persisted power-outage intervals.
+
+    The acquisition loop calls :meth:`update` once per poll cycle, passing
+    whether any reading in that cycle succeeded. A cycle with no successful
+    reading means the meter stopped answering — the line went dead or the meter
+    lost power — so the tracker records the failure and the subsequent
+    recovery as one ``outages`` row through ``SQLiteStore.save_outage``.
+
+    ``meter_address`` is the same wire-order ``bytes`` produced by
+    ``dlt645_converter.parse_address``; it is converted to the conventional
+    human-order string so it lines up with the ``meter_readings`` table.
+    """
+
+    def __init__(self, store: Optional[SQLiteStore], meter_address: bytes | str) -> None:
+        self.store = store
+        if isinstance(meter_address, (bytes, bytearray)):
+            meter_address = format_address(bytes(meter_address))
+        self.meter_address = meter_address
+        self._outage_start: Optional[datetime] = None
+
+    def update(self, ok: bool, timestamp: datetime) -> None:
+        """Record one poll cycle and open/close the outage interval as needed."""
+        if ok:
+            self._close(timestamp)
+        elif self._outage_start is None:
+            self._outage_start = timestamp
+
+    def finalize(self, timestamp: datetime) -> None:
+        """Close any still-open interval; call once on shutdown."""
+        self._close(timestamp)
+
+    def _close(self, timestamp: datetime) -> None:
+        if self._outage_start is None:
+            return
+        if self.store is not None and timestamp > self._outage_start:
+            self.store.save_outage(self.meter_address, self._outage_start, timestamp)
+        self._outage_start = None
