@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read and decode DL/T 645 data through a USB serial adapter."""
+"""Read and decode DL/T 645 data through a local serial port."""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ class SerialPort:
         while view:
             _, writable, _ = select.select([], [self.fd], [], 1.0)
             if not writable:
-                raise TimeoutError("USB serial write timed out")
+                raise TimeoutError("serial write timed out")
             written = os.write(self.fd, view)
             view = view[written:]
 
@@ -293,7 +293,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     global _BRIEF_OUTPUT
     parser = argparse.ArgumentParser(description=__doc__)
     transport = parser.add_mutually_exclusive_group()
-    transport.add_argument("--port", help="USB serial device, e.g. /dev/ttyUSB0 or /dev/cu.usbserial-XXXX")
+    transport.add_argument(
+        "--port",
+        help="serial device, e.g. /dev/ttyS1 (RDK X5 UART1) or /dev/ttyUSB0",
+    )
     transport.add_argument("--tcp", metavar="HOST:PORT", help="TCP endpoint for a software meter simulator")
     parser.add_argument("--baud", type=int, default=2400, help="baud rate (default: 2400)")
     parser.add_argument("--parity", choices=("none", "even", "odd"), default="none", help="serial parity (default: none)")

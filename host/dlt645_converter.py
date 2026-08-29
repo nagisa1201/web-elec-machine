@@ -303,7 +303,7 @@ def _validate_body(body: bytes) -> None:
 
 
 class FrameDecoder:
-    """Incremental parser for USB serial chunks (noise, FE preambles, and frames)."""
+    """Incremental parser for serial chunks (noise, FE preambles, and frames)."""
 
     def __init__(self, max_frame_length: int = MAX_FRAME_LENGTH) -> None:
         self.buffer = bytearray()
@@ -316,7 +316,7 @@ class FrameDecoder:
         while True:
             start = self.buffer.find(bytes([START]))
             if start < 0:
-                # Keep split FE preambles; unrelated USB noise is discarded.
+                # Keep split FE preambles; unrelated serial noise is discarded.
                 suffix = bytes(self.buffer)
                 index = len(suffix)
                 while index and suffix[index - 1] == PREAMBLE:

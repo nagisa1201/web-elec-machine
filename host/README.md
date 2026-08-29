@@ -1,7 +1,58 @@
-# Local USB adapter
+# Local serial connection
 
 This directory contains the Python transport and conversion tools for DL/T 645.
 It does not require a third-party Python package.
+
+## RDK X5 40PIN UART1 (RS485 meter)
+
+The RDK X5 40PIN UART1 is `/dev/ttyS1` (Pin 8 TXD and Pin 10 RXD, 3.3 V
+TTL). A DL/T 645 meter uses RS485, so connect the UART to the meter through a
+3.3 V TTL-to-RS485 transceiver; never connect the meter's A/B pair directly to
+the 40PIN UART. Remove any TXD-to-RXD loopback jumper before connecting the
+transceiver.
+
+For a one-value communication check, run:
+
+```sh
+PYTHONPATH=host python3 host/dlt645_usb.py \
+  --port /dev/ttyS1 \
+  --baud 1200 \
+  --parity even \
+  --version 2007 \
+  --addr 557499000093 \
+  --code 0x02010100 \
+  --poll \
+  --interval 1 \
+  --timeout 2 \
+  --brief
+```
+
+The CLI uses Linux `termios`, so no USB-specific code path is involved when
+`--port /dev/ttyS1` is selected.
+
+## Default production acquisition
+
+The project default is a full-catalog UART1 poller that persists results to
+SQLite. From the repository root on the RDK X5, run:
+
+```sh
+bash scripts/start_meter_poll.sh
+```
+
+It fixes the known meter configuration at `/dev/ttyS1`, 1200 baud, even parity
+(8E1), DL/T 645-2007, address `557499000093`, a five-second poll interval,
+and a two-second request timeout. It uses `--all` and writes to
+`meter_readings.sqlite3`. All settings can be overridden for a single launch:
+
+```sh
+POLL_INTERVAL=10 DATABASE=/root/meter_readings.sqlite3 \
+  bash scripts/start_meter_poll.sh
+```
+
+`--all` reads every catalog item enabled for the connected meter. Identifiers
+known to return error `0x03` are excluded by the protocol catalog. The original
+one-value command above remains a communication test and does not write a
+database unless `--db` is added.
 
 ## Passive USB decoding
 
