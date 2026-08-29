@@ -37,6 +37,7 @@ _BAUD = {
     57600: termios.B57600,
     115200: termios.B115200,
 }
+_BRIEF_OUTPUT = False
 
 
 class SerialPort:
@@ -131,6 +132,9 @@ class TcpPort:
 
 
 def _print(value: dict) -> None:
+    if _BRIEF_OUTPUT and "ok" in value:
+        keys = ("data_name", "value", "unit", "address") if value["ok"] else ("data_name", "error")
+        value = {key: value[key] for key in ("ok", *keys) if value.get(key) not in (None, "")}
     print(json.dumps(value, ensure_ascii=True, separators=(",", ":")), flush=True)
 
 
@@ -198,6 +202,16 @@ def request(
                     if debug:
                         print(
                             f"IGNORED response address {response.address}; expected {address[::-1].hex().upper()}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                    continue
+                # Ignore local adapter echoes; meter replies carry bit 7.
+                if not (response.control & 0x80):
+                    if debug:
+                        print(
+                            f"IGNORED non-response control 0x{response.control:02X} "
+                            f"{response.raw.hex(' ').upper()}",
                             file=sys.stderr,
                             flush=True,
                         )
@@ -276,6 +290,7 @@ def discover_address(port: SerialPort, preamble: int, timeout: float, debug: boo
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    global _BRIEF_OUTPUT
     parser = argparse.ArgumentParser(description=__doc__)
     transport = parser.add_mutually_exclusive_group()
     transport.add_argument("--port", help="USB serial device, e.g. /dev/ttyUSB0 or /dev/cu.usbserial-XXXX")
@@ -286,7 +301,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--addr", help="meter address in human order, e.g. 123456789012")
     parser.add_argument("--code", action="append", help="read data identifier; repeat for multiple codes")
     parser.add_argument("--all", action="store_true", help="read every enabled identifier in the built-in catalog")
-    parser.add_argument("--poll", action="store_true", help="repeat active reads until Ctrl-C")
+    parser.add_argument("--poll", action="store_true", help="repeat requests until Ctrl-C")
     parser.add_argument("--interval", type=float, default=5.0, help="seconds between polling cycles (default: 5)")
     parser.add_argument("--db", help="SQLite database path for active read results")
     parser.add_argument("--list-codes", action="store_true", help="list built-in identifiers and exit")
@@ -295,7 +310,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--timeout", type=float, default=1.5, help="response timeout in seconds")
     parser.add_argument("--hex", dest="hex_frame", help="decode a hexadecimal frame without opening a serial port")
     parser.add_argument("--debug", action="store_true", help="print raw sent and received bytes to standard error")
+    parser.add_argument("--brief", action="store_true", help="print only parsed values or errors")
     args = parser.parse_args(argv)
+    _BRIEF_OUTPUT = args.brief
 
     if args.list_codes:
         for point_code in read_codes(args.version, include_all=True):
@@ -323,17 +340,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("--port or --tcp is required unless --hex is used")
     if args.discover_address and args.code:
         parser.error("--discover-address cannot be used with --code")
-    if args.discover_address and (args.all or args.poll or args.db):
-        parser.error("--discover-address cannot be combined with --all, --poll, or --db")
+    if args.discover_address and (args.all or args.db):
+        parser.error("--discover-address cannot be combined with --all or --db")
     if args.all and args.code:
         parser.error("--all cannot be combined with --code; use --code to select identifiers")
-    if args.poll and args.discover_address:
-        parser.error("--poll cannot be combined with --discover-address")
     if args.interval <= 0:
         parser.error("--interval must be greater than zero")
     if args.discover_address and args.version != "2007":
         parser.error("--discover-address is available only for DL/T 645-2007")
-    if (args.code or args.all or args.poll) and not args.addr:
+    if (args.code or args.all or (args.poll and not args.discover_address)) and not args.addr:
         parser.error("--addr is required for active reads")
     try:
         address = parse_address(args.addr) if args.addr else None
@@ -351,7 +366,22 @@ def main(argv: Optional[list[str]] = None) -> int:
             connection = SerialPort(args.port, args.baud, args.parity)
         with connection as port:
             if args.discover_address:
-                discover_address(port, args.preamble, args.timeout, args.debug)
+                if args.poll:
+                    while True:
+                        cycle_started = time.monotonic()
+                        discover_address(port, args.preamble, args.timeout, args.debug)
+                        elapsed = time.monotonic() - cycle_started
+                        delay = args.interval - elapsed
+                        if delay > 0:
+                            time.sleep(delay)
+                        elif args.debug:
+                            print(
+                                f"poll cycle took {elapsed:.3f}s, longer than interval {args.interval:.3f}s",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                else:
+                    discover_address(port, args.preamble, args.timeout, args.debug)
             elif codes:
                 store = SQLiteStore(args.db) if args.db else None
                 try:

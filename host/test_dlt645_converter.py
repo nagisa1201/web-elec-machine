@@ -74,6 +74,13 @@ class ConverterTests(unittest.TestCase):
         self.assertFalse(decoded["ok"])
         self.assertEqual(decoded["error_code"], 2)
 
+    def test_request_echo_is_not_a_meter_response(self):
+        address = parse_address("123456789012")
+        request_frame = build_read_request(address, 0x02010100, "2007", preamble_count=0)
+        frame = FrameDecoder().feed(request_frame)[0]
+        self.assertEqual(frame.control, 0x11)
+        self.assertFalse(frame.control & 0x80)
+
     def test_catalog_contains_measurements_and_full_energy_set(self):
         self.assertEqual(data_point(0x02010100).name, "phase_a_voltage")
         self.assertEqual(data_point(0x02010100).unit, "V")
