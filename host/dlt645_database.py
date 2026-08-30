@@ -4,17 +4,50 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from dlt645_converter import format_address
 
+# A clock reverted to 2000-01-01 means the board has not synced yet. Any
+# plausible recent year is considered "sane"; bump this occasionally if needed.
+_MIN_SANE_YEAR = 2024
+
+
+def wait_for_sane_clock(timeout: float = 180.0) -> None:
+    """Block until the system clock looks sane, or ``timeout`` seconds pass.
+
+    The RDK X5 has no RTC battery, so a cold boot starts with the clock reset
+    to 2000-01-01. Time sync (fake-hwclock restore + NTP) fixes it shortly
+    after boot; this guard makes the acquisition layer wait for that instead of
+    writing obviously-wrong timestamps into the store. If the clock is still
+    wrong after ``timeout`` we proceed anyway — logging bad data beats stopping
+    monitoring entirely — but the mismatch is made visible in the log.
+    """
+    deadline = time.monotonic() + timeout
+    while datetime.now().year < _MIN_SANE_YEAR:
+        if time.monotonic() >= deadline:
+            print(
+                f"WARNING: system clock still {datetime.now().isoformat()} after "
+                f"{timeout:.0f}s; timestamps may be wrong (check NTP / fake-hwclock)",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        time.sleep(2.0)
+
 
 class SQLiteStore:
     """Append-only local store for meter samples and communication errors."""
 
     def __init__(self, path: str) -> None:
+        # Never open the store for writing until the clock is sane: the store
+        # timestamps every row with datetime.now(), so opening early would
+        # write year-2000 rows before time sync has run.
+        wait_for_sane_clock()
         self.path = str(Path(path).expanduser())
         self.connection = sqlite3.connect(self.path)
         self.connection.execute("PRAGMA journal_mode=WAL")
@@ -110,6 +143,30 @@ class SQLiteStore:
         )
         self.connection.commit()
 
+    def start_outage(self, meter_address: str, started_at: datetime) -> str:
+        """Persist the *start* of an outage the moment it is detected.
+
+        A hard power cut must not lose the fact that the line went dead, so the
+        interval is written immediately with ``ended_at`` set to ``started_at``
+        as a placeholder; :meth:`end_outage` fills in the real end on recovery.
+        Returns the ``started_at`` ISO string used to update it.
+        """
+        iso = started_at.isoformat(timespec="milliseconds")
+        self.connection.execute(
+            "INSERT INTO outages (meter_address, started_at, ended_at) VALUES (?, ?, ?)",
+            (meter_address, iso, iso),
+        )
+        self.connection.commit()
+        return iso
+
+    def end_outage(self, started_at_iso: str, ended_at: datetime) -> None:
+        """Fill in the end of an outage previously opened by :meth:`start_outage`."""
+        self.connection.execute(
+            "UPDATE outages SET ended_at = ? WHERE started_at = ? AND ended_at = started_at",
+            (ended_at.isoformat(timespec="milliseconds"), started_at_iso),
+        )
+        self.connection.commit()
+
     def close(self) -> None:
         self.connection.close()
 
@@ -140,13 +197,23 @@ class OutageTracker:
             meter_address = format_address(bytes(meter_address))
         self.meter_address = meter_address
         self._outage_start: Optional[datetime] = None
+        self._outage_start_iso: Optional[str] = None
 
     def update(self, ok: bool, timestamp: datetime) -> None:
-        """Record one poll cycle and open/close the outage interval as needed."""
+        """Record one poll cycle and open/close the outage interval as needed.
+
+        The instant the meter goes silent the interval start is persisted
+        (``start_outage``) so a hard power cut cannot lose it; the real end is
+        written on recovery.
+        """
         if ok:
             self._close(timestamp)
         elif self._outage_start is None:
             self._outage_start = timestamp
+            self._outage_start_iso = (
+                self.store.start_outage(self.meter_address, timestamp)
+                if self.store is not None else None
+            )
 
     def finalize(self, timestamp: datetime) -> None:
         """Close any still-open interval; call once on shutdown."""
@@ -156,5 +223,9 @@ class OutageTracker:
         if self._outage_start is None:
             return
         if self.store is not None and timestamp > self._outage_start:
-            self.store.save_outage(self.meter_address, self._outage_start, timestamp)
+            if self._outage_start_iso is not None:
+                self.store.end_outage(self._outage_start_iso, timestamp)
+            else:
+                self.store.save_outage(self.meter_address, self._outage_start, timestamp)
         self._outage_start = None
+        self._outage_start_iso = None

@@ -332,7 +332,7 @@ class DataStore:
         start, day_end = self._day_bounds(day)
         if now is None:
             now = datetime.now(self.tz)
-        ongoing = now < day_end
+        ongoing = start <= now < day_end
         end = now if ongoing else day_end
         samples = self.samples(meter, start, end)
 

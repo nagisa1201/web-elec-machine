@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -121,6 +122,9 @@ def api_realtime(app: Application, params: dict) -> dict:
     minutes = _int_param(params, "minutes", app.config.realtime_minutes)
     payload = app.store.recent_series(meter, minutes)
     payload["series"] = _with_phase_meta(payload["series"])
+    # The board's clock is the authority for "now" on the live chart; the UI
+    # compares sample timestamps against it, never against the phone's clock.
+    payload["server_now"] = _iso(datetime.now(app.store.tz))
     return payload
 
 

@@ -21,6 +21,7 @@
     outageGapSeconds: 30, // outage gap threshold, refreshed from /api/health
     outageActive: false, // true while an outage is still in progress
     lastUpdate: null, // epoch ms of the last successful realtime fetch
+    serverClockOffset: 0, // server time minus phone time, in ms
     liveChart: null,
     historyChart: null,
     healthTimer: null,
@@ -78,9 +79,17 @@
     return { label: "正常", tone: "ok" };
   }
 
+  // The board's clock is the authority for "now": sample timestamps come from
+  // the server, so comparing them against the phone's clock would misjudge an
+  // outage whenever the two clocks drift apart (e.g. the board boots back to
+  // 2000 with no RTC). Track the offset and derive "now" from the server.
+  function serverNow() {
+    return Date.now() + state.serverClockOffset;
+  }
+
   // An outage whose end time is essentially "now" is still in progress.
   function isOngoing(outage) {
-    return Date.now() - new Date(outage.end).getTime() < ONGOING_MS;
+    return serverNow() - new Date(outage.end).getTime() < ONGOING_MS;
   }
 
   // Insert 0 V into reading gaps so the curve drops to zero during an outage
@@ -210,13 +219,16 @@
     try {
       const data = await window.api.realtime(state.meter);
       state.lastUpdate = Date.now();
+      if (data.server_now) {
+        state.serverClockOffset = new Date(data.server_now).getTime() - Date.now();
+      }
       el("live-window").textContent = "最近 " + data.minutes + " 分钟";
       renderHero(data);
       renderPhaseCards(data);
       const hasPoints = data.series.some((s) => s.points && s.points.length > 0);
       el("live-empty").classList.toggle("hidden", hasPoints);
       state.liveChart.setSeries(
-        fillOutageGaps(data.series, Date.now(), state.outageGapSeconds * 1000)
+        fillOutageGaps(data.series, serverNow(), state.outageGapSeconds * 1000)
       );
     } catch (err) {
       el("live-empty").classList.remove("hidden");
