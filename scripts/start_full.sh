@@ -25,6 +25,7 @@ DATABASE="${DATABASE:-${ROOT_DIR}/meter_readings.sqlite3}"
 # ---- Web 服务参数 ----
 WEB_HOST="${WEB_HOST:-0.0.0.0}"
 WEB_PORT="${WEB_PORT:-8080}"
+OUTAGE_GAP="${OUTAGE_GAP:-30}"   # 连续多少秒无读数即判为停电
 
 # ---- WIFI 热点参数 ----
 HOTSPOT_SSID="${HOTSPOT_SSID:-RDK_VOLT}"
@@ -48,8 +49,9 @@ env PYTHONPATH=host python3 host/dlt645_usb.py \
   --db "${DATABASE}" --brief &
 POLL_PID=$!
 
-echo "[2/3] 启动 Web 服务 http://${WEB_HOST}:${WEB_PORT}  (读库 ${DATABASE})"
-python3 -m web --db "${DATABASE}" --host "${WEB_HOST}" --port "${WEB_PORT}" &
+echo "[2/3] 启动 Web 服务 http://${WEB_HOST}:${WEB_PORT}  (读库 ${DATABASE}, 停电阈值 ${OUTAGE_GAP}s)"
+python3 -m web --db "${DATABASE}" --host "${WEB_HOST}" --port "${WEB_PORT}" \
+  --outage-gap "${OUTAGE_GAP}" &
 WEB_PID=$!
 
 cleanup() {
