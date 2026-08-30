@@ -97,6 +97,22 @@ class OutageDetectionTests(unittest.TestCase):
         outages = detect_outages(samples, gap_seconds=120.0, low_volts=30.0)
         self.assertEqual(outages, [])
 
+    def test_ongoing_trailing_silence_is_an_outage(self):
+        # Meter stops answering; with ongoing=True the reading-free tail up to
+        # `end` (i.e. "now") is reported as an outage still in progress.
+        samples = [sample("2026-08-24", 10, 0, 0, 230.0), sample("2026-08-24", 10, 1, 0, 230.0)]
+        end = at("2026-08-24", 10, 20, 0)
+        outages = detect_outages(samples, gap_seconds=120.0, low_volts=30.0, end=end, ongoing=True)
+        self.assertEqual(len(outages), 1)
+        self.assertAlmostEqual(outages[0].seconds, 1140.0, delta=1.0)  # 10:01 -> 10:20
+
+    def test_trailing_silence_is_ignored_for_closed_days(self):
+        # Same data, but a past day (ongoing=False): the tail is not an outage.
+        samples = [sample("2026-08-24", 10, 0, 0, 230.0), sample("2026-08-24", 10, 1, 0, 230.0)]
+        end = at("2026-08-24", 10, 20, 0)
+        outages = detect_outages(samples, gap_seconds=120.0, low_volts=30.0, end=end, ongoing=False)
+        self.assertEqual(outages, [])
+
 
 class DataStoreTests(unittest.TestCase):
     def test_meters_and_days(self):
@@ -169,6 +185,29 @@ class DataStoreTests(unittest.TestCase):
         stats = store.stats(METER, "2026-08-24")
         self.assertEqual(stats.outage_count, 1)
         self.assertAlmostEqual(stats.outage_seconds, 240.0, delta=1.0)
+
+    def test_stats_reports_ongoing_outage_today(self):
+        # Last reading at 11:41, "now" at 12:00 with nothing in between: the
+        # meter has gone silent, so today's stats must show an ongoing outage.
+        path = make_db([
+            (at("2026-08-24", 11, 40, 0), "phase_a_voltage", 230.0),
+            (at("2026-08-24", 11, 41, 0), "phase_a_voltage", 230.0),
+        ])
+        store = DataStore(path, tz=TZ)
+        stats = store.stats(METER, "2026-08-24", now=at("2026-08-24", 12, 0, 0))
+        self.assertEqual(stats.outage_count, 1)
+        self.assertAlmostEqual(stats.outage_seconds, 1140.0, delta=1.0)  # 11:41 -> 12:00
+
+    def test_stats_does_not_report_ongoing_outage_for_past_days(self):
+        # Same readings, but "now" is a later day: the day is closed, so the
+        # trailing silence is not an outage.
+        path = make_db([
+            (at("2026-08-24", 11, 40, 0), "phase_a_voltage", 230.0),
+            (at("2026-08-24", 11, 41, 0), "phase_a_voltage", 230.0),
+        ])
+        store = DataStore(path, tz=TZ)
+        stats = store.stats(METER, "2026-08-24", now=at("2026-08-26", 12, 0, 0))
+        self.assertEqual(stats.outage_count, 0)
 
 
 if __name__ == "__main__":

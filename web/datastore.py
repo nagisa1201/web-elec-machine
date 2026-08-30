@@ -72,6 +72,7 @@ def detect_outages(
     gap_seconds: float,
     low_volts: float,
     end: Optional[datetime] = None,
+    ongoing: bool = False,
 ) -> list[Outage]:
     """Find power-outage intervals in a time-ordered list of samples.
 
@@ -82,10 +83,14 @@ def detect_outages(
       went dead, or
     * a reading drops below ``low_volts`` V (near zero on a 220 V line).
 
-    A gap before the first reading or after the last reading is *not* treated
-    as an outage: it is indistinguishable from the monitor being switched off
-    or the day simply having no data yet. A trailing low-voltage run is closed
-    at ``end`` when one is supplied.
+    A gap before the first reading is *not* treated as an outage: it is
+    indistinguishable from the monitor being switched off. A trailing
+    low-voltage run is closed at ``end`` when one is supplied.
+
+    When ``ongoing`` is True the observation is still live up to ``end`` (the
+    current day), so a reading-free tail longer than ``gap_seconds`` is also
+    reported as an outage still in progress at ``end`` — the meter has stopped
+    answering *now*, rather than the day simply having no data yet.
     """
     ordered = sorted(samples, key=lambda s: s.timestamp)
     outages: list[Outage] = []
@@ -115,6 +120,10 @@ def detect_outages(
             close(now)
         previous = now
 
+    if end is not None and previous is not None:
+        if ongoing and not in_outage and (end - previous).total_seconds() > gap_seconds:
+            in_outage = True
+            outage_start = previous
     if in_outage and end is not None:
         close(end)
     return outages
@@ -312,9 +321,19 @@ class DataStore:
 
     # ---------------------------------------------------------------- statistics
 
-    def stats(self, meter: str, day: str) -> DailyStats:
-        """Daily maximum/minimum voltage and power-outage totals."""
-        start, end = self._day_bounds(day)
+    def stats(self, meter: str, day: str, now: Optional[datetime] = None) -> DailyStats:
+        """Daily maximum/minimum voltage and power-outage totals.
+
+        For the current day the observation window ends at "now" rather than
+        midnight, so a meter that has gone silent (still in progress) is
+        reported as an ongoing outage instead of being silently dropped.
+        ``now`` is injectable so tests can pin the observation instant.
+        """
+        start, day_end = self._day_bounds(day)
+        if now is None:
+            now = datetime.now(self.tz)
+        ongoing = now < day_end
+        end = now if ongoing else day_end
         samples = self.samples(meter, start, end)
 
         maximum = minimum = None
@@ -330,6 +349,7 @@ class DataStore:
                 gap_seconds=self.outage_gap_seconds,
                 low_volts=self.outage_low_volts,
                 end=end,
+                ongoing=ongoing,
             ),
             self.outages(meter, start, end),
         )

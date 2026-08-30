@@ -274,6 +274,15 @@ html, body {
 .outage-item .outage-dur {
   font-family: var(--mono); font-size: 13px; color: var(--amber);
 }
+.outage-item.outage-ongoing {
+  border-color: var(--amber);
+  background: rgba(245, 158, 11, 0.08);
+}
+.outage-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  font-size: 11px; font-weight: 600; color: #fff;
+  background: var(--amber); border-radius: 999px;
+}
 .muted { color: var(--text-muted); font-size: 13px; margin: 0; }
 
 /* ------------------------------------------------------------------ footer */

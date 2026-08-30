@@ -15,6 +15,7 @@
     historyChart: null,
     healthTimer: null,
     realtimeTimer: null,
+    statsTimer: null,
   };
 
   const el = (id) => document.getElementById(id);
@@ -275,11 +276,14 @@
       return;
     }
     stats.outages.forEach((o) => {
+      const ongoing = Date.now() - new Date(o.end).getTime() < 60000;
       const row = document.createElement("div");
       row.className = "outage-item";
+      if (ongoing) row.classList.add("outage-ongoing");
       row.innerHTML =
         '<span class="outage-time">' + fmtTime(o.start) + " — " + fmtTime(o.end) + "</span>" +
-        '<span class="outage-dur">' + fmtDuration(o.seconds) + "</span>";
+        '<span class="outage-dur">' + fmtDuration(o.seconds) +
+        (ongoing ? ' <span class="outage-badge">进行中</span>' : "") + "</span>";
       list.appendChild(row);
     });
   }
@@ -337,6 +341,9 @@
     loadHealth();
     state.healthTimer = setInterval(loadHealth, 5000);
     state.realtimeTimer = setInterval(loadRealtime, 5000);
+    // Stats (outage count/duration) must refresh too, so an outage that is
+    // still in progress keeps counting up without a manual page reload.
+    state.statsTimer = setInterval(loadStats, 15000);
   }
 
   document.addEventListener("DOMContentLoaded", init);
