@@ -5,11 +5,21 @@
   const PHASE_COLOR = { a: "#4f8cff", b: "#34d399", c: "#f59e0b" };
   const PHASE_NAME = { a: "A 相电压", b: "B 相电压", c: "C 相电压" };
 
+  // How often the UI itself refetches each data slice. The live chart and
+  // hero refresh every REFRESH_REALTIME_MS; the daily stats / outage state
+  // every REFRESH_STATS_MS. Shown to the user in the footer.
+  const REFRESH_REALTIME_MS = 2000;
+  const REFRESH_STATS_MS = 3000;
+  const REFRESH_HEALTH_MS = 5000;
+  const ONGOING_MS = 10000; // an outage ending within this window is "in progress"
+
   const state = {
     meter: null,
     day: null, // "YYYY-MM-DD"
     nominalVolts: 220, // nominal grid voltage, refreshed from /api/health
-    outageLow: 30, // outage threshold, refreshed from /api/health
+    outageLow: 30, // outage low-voltage threshold, refreshed from /api/health
+    outageGapSeconds: 30, // outage gap threshold, refreshed from /api/health
+    outageActive: false, // true while an outage is still in progress
     lastUpdate: null, // epoch ms of the last successful realtime fetch
     liveChart: null,
     historyChart: null,
@@ -68,6 +78,41 @@
     return { label: "正常", tone: "ok" };
   }
 
+  // An outage whose end time is essentially "now" is still in progress.
+  function isOngoing(outage) {
+    return Date.now() - new Date(outage.end).getTime() < ONGOING_MS;
+  }
+
+  // Insert 0 V into reading gaps so the curve drops to zero during an outage
+  // instead of simply stopping at the last good sample. Two 0 V points — one at
+  // each end of the gap — make the outage a flat zero segment with a sharp
+  // drop at the start and a sharp recovery at the end.
+  function fillOutageGaps(series, nowMs, gapMs) {
+    if (!series) return series;
+    return series.map((s) => {
+      const pts = s.points || [];
+      if (pts.length === 0) return s;
+      const out = [];
+      for (let i = 0; i < pts.length; i++) {
+        out.push(pts[i]);
+        if (i + 1 < pts.length) {
+          const t = new Date(pts[i][0]).getTime();
+          const tn = new Date(pts[i + 1][0]).getTime();
+          if (tn - t > gapMs) {
+            out.push([new Date(t + 1).toISOString(), 0]);
+            out.push([new Date(tn - 1).toISOString(), 0]);
+          }
+        }
+      }
+      const last = new Date(out[out.length - 1][0]).getTime();
+      if (nowMs - last > gapMs) {
+        out.push([new Date(last + 1).toISOString(), 0]);
+        out.push([new Date(nowMs).toISOString(), 0]);
+      }
+      return { phase: s.phase, label: s.label, color: s.color, points: out };
+    });
+  }
+
   function setStatus(stateName, text) {
     const node = el("status");
     node.setAttribute("data-state", stateName);
@@ -95,6 +140,7 @@
 
     if (Number.isFinite(health.nominal_volts)) state.nominalVolts = health.nominal_volts;
     if (Number.isFinite(health.outage_low_volts)) state.outageLow = health.outage_low_volts;
+    if (Number.isFinite(health.outage_gap_seconds)) state.outageGapSeconds = health.outage_gap_seconds;
 
     if (!health.db_available || health.meters.length === 0) {
       setStatus("online", "已连接 · 无数据");
@@ -104,6 +150,8 @@
     el("footer-info").textContent =
       health.service + " v" + health.version +
       (health.polling ? " · 采集运行中" : "") +
+      " · 界面刷新 " + (REFRESH_REALTIME_MS / 1000) + "s" +
+      " · 停电判定 " + Math.round(state.outageGapSeconds) + "s" +
       " · 数据库 " + health.db;
 
     // Keep the live chart's nominal reference line in sync with the server.
@@ -167,7 +215,9 @@
       renderPhaseCards(data);
       const hasPoints = data.series.some((s) => s.points && s.points.length > 0);
       el("live-empty").classList.toggle("hidden", hasPoints);
-      state.liveChart.setSeries(data.series);
+      state.liveChart.setSeries(
+        fillOutageGaps(data.series, Date.now(), state.outageGapSeconds * 1000)
+      );
     } catch (err) {
       el("live-empty").classList.remove("hidden");
     }
@@ -180,8 +230,13 @@
       (data.series || [])[0];
     const pts = series && series.points;
     const latest = pts && pts.length ? pts[pts.length - 1] : null;
-    const value = latest ? latest[1] : null;
-    const cls = classifyVoltage(value);
+    const rawValue = latest ? latest[1] : null;
+    // During an outage the meter is silent: show 0 V rather than the stale
+    // last reading, so the hero matches the 0 V the chart is drawing.
+    const value = state.outageActive ? 0 : rawValue;
+    const cls = state.outageActive
+      ? { label: "停电中", tone: "bad" }
+      : classifyVoltage(rawValue);
 
     const valueEl = el("hero-value");
     valueEl.textContent = fmtVoltage(value);
@@ -211,8 +266,10 @@
       const point = latest[phase];
       const card = document.createElement("div");
       card.className = "phase-card";
-      const value = point ? point[1] : null;
-      const cls = classifyVoltage(value);
+      const value = state.outageActive ? 0 : (point ? point[1] : null);
+      const cls = state.outageActive
+        ? { label: "停电中", tone: "bad" }
+        : classifyVoltage(value);
       card.innerHTML =
         '<span class="phase-name"><span class="swatch" style="background:' +
         (PHASE_COLOR[phase] || "#9ca3af") + '"></span>' + (PHASE_NAME[phase] || phase) +
@@ -259,6 +316,18 @@
     el("stat-outage-count").textContent = stats ? String(stats.outage_count) : "—";
     el("stat-outage-duration").textContent = stats ? fmtDuration(stats.outage_seconds) : "—";
 
+    // Track whether an outage is in progress right now and reflect it in the
+    // banner and the live hero. On a transition, refresh the live view at once
+    // so recovery starts plotting immediately.
+    const activeOutage = stats && stats.outages ? stats.outages.find(isOngoing) : null;
+    const wasActive = state.outageActive;
+    state.outageActive = !!activeOutage;
+    renderOutageBanner(activeOutage);
+    if (state.outageActive !== wasActive) {
+      loadRealtime();
+      loadHistory();
+    }
+
     // Highlight the day's extrema on the history curve.
     const markers = [];
     if (stats && stats.max) {
@@ -276,7 +345,7 @@
       return;
     }
     stats.outages.forEach((o) => {
-      const ongoing = Date.now() - new Date(o.end).getTime() < 60000;
+      const ongoing = isOngoing(o);
       const row = document.createElement("div");
       row.className = "outage-item";
       if (ongoing) row.classList.add("outage-ongoing");
@@ -286,6 +355,17 @@
         (ongoing ? ' <span class="outage-badge">进行中</span>' : "") + "</span>";
       list.appendChild(row);
     });
+  }
+
+  function renderOutageBanner(activeOutage) {
+    const banner = el("outage-banner");
+    if (!activeOutage) {
+      banner.hidden = true;
+      return;
+    }
+    banner.hidden = false;
+    el("outage-banner-detail").textContent =
+      fmtTime(activeOutage.start) + " 起 · 已持续 " + fmtDuration(activeOutage.seconds);
   }
 
   // -------------------------------------------------------------- day nav
@@ -339,11 +419,11 @@
     setInterval(tickClock, 1000);
 
     loadHealth();
-    state.healthTimer = setInterval(loadHealth, 5000);
-    state.realtimeTimer = setInterval(loadRealtime, 5000);
-    // Stats (outage count/duration) must refresh too, so an outage that is
-    // still in progress keeps counting up without a manual page reload.
-    state.statsTimer = setInterval(loadStats, 15000);
+    state.healthTimer = setInterval(loadHealth, REFRESH_HEALTH_MS);
+    state.realtimeTimer = setInterval(loadRealtime, REFRESH_REALTIME_MS);
+    // Stats (outage count/duration) refresh too, so an outage that is still in
+    // progress keeps counting up without a manual page reload.
+    state.statsTimer = setInterval(loadStats, REFRESH_STATS_MS);
   }
 
   document.addEventListener("DOMContentLoaded", init);
